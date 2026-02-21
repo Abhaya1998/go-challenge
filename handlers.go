@@ -15,7 +15,7 @@ func toAPIProduct(p *dbProduct) Product {
 		ID:          p.ID,
 		Name:        p.Name,
 		Description: p.Description,
-		Price:       float64(p.PriceCents) * 100,
+		Price:       float64(p.PriceCents) / 100,
 		Category:    p.Category,
 		InStock:     p.InStock,
 		Quantity:    p.Quantity,
@@ -70,6 +70,15 @@ func (s *Server) handleCreateProduct(w http.ResponseWriter, r *http.Request) {
 	id, err := s.store.CreateProduct(req.Name, req.Description, priceCents, req.Category, req.InStock, req.Quantity)
 	if err != nil {
 		log.Printf("ERROR: failed to create product: %v", err)
+		errMsg := err.Error()
+		if errMsg == "name is required" || errMsg == "category is required" || errMsg == "price must be non-negative" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+			return
+		}
+		http.Error(w, "failed to create product", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -110,10 +119,27 @@ func (s *Server) handleUpdateProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if update.Price < 0 {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"error":"price must be non-negative"}`, http.StatusBadRequest)
+		return
+	}
+
 	priceCents := int(math.Round(update.Price * 100))
 
 	err = s.store.UpdateProduct(id, update.Name, update.Description, priceCents, update.Category, update.InStock, update.Quantity)
 	if err != nil {
+		errMsg := err.Error()
+		if errMsg == "name is required" || errMsg == "category is required" || errMsg == "price must be non-negative" || errMsg == "product not found" {
+			w.Header().Set("Content-Type", "application/json")
+			code := http.StatusBadRequest
+			if errMsg == "product not found" {
+				code = http.StatusNotFound
+			}
+			w.WriteHeader(code)
+			json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+			return
+		}
 		http.Error(w, "failed to update product", http.StatusInternalServerError)
 		return
 	}
@@ -146,6 +172,7 @@ func (s *Server) handleDeleteProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePurchaseProduct handles POST /products/:id/purchase
+// Only for products without variants; products with variants must be purchased by variant.
 func (s *Server) handlePurchaseProduct(w http.ResponseWriter, r *http.Request) {
 	pathPart := strings.TrimPrefix(r.URL.Path, "/products/")
 	idStr := strings.Split(pathPart, "/")[0]
@@ -163,6 +190,12 @@ func (s *Server) handlePurchaseProduct(w http.ResponseWriter, r *http.Request) {
 
 	if product.Quantity <= 0 {
 		http.Error(w, `{"error":"out of stock"}`, http.StatusConflict)
+		return
+	}
+
+	variants, err := s.store.ListVariants(id)
+	if err == nil && len(variants) > 0 {
+		http.Error(w, `{"error":"product has variants; purchase by variant"}`, http.StatusBadRequest)
 		return
 	}
 

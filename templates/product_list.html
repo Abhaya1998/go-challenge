@@ -22,7 +22,7 @@
             <td>
                 <a href="/products/{{.ID}}">{{.Name}}</a>
             </td>
-            <td class="price">${{printf "%.2f" (div .Price 100)}}</td>
+            <td class="price">${{printf "%.2f" .Price}}</td>
             <td>{{.Category}}</td>
             <td>
                 {{if .InStock}}

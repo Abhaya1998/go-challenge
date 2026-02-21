@@ -41,6 +41,11 @@ func (s *Server) handleListVariants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
 	variants, err := s.store.ListVariants(productID)
 	if err != nil {
 		http.Error(w, "failed to list variants", http.StatusInternalServerError)
@@ -99,6 +104,10 @@ func (s *Server) handleCreateVariant(w http.ResponseWriter, r *http.Request) {
 
 	id, err := s.store.CreateVariant(productID, req.SKU, req.Name, priceCents, req.Quantity, attrsJSON, req.SortOrder)
 	if err != nil {
+		if err.Error() == "product not found" {
+			http.Error(w, "product not found", http.StatusNotFound)
+			return
+		}
 		log.Printf("ERROR: failed to create variant: %v", err)
 		http.Error(w, `{"error":"failed to create variant"}`, http.StatusInternalServerError)
 		return
@@ -118,14 +127,28 @@ func (s *Server) handleGetVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	productID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
 	variantID, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.Error(w, "invalid variant ID", http.StatusBadRequest)
 		return
 	}
 
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
 	variant, err := s.store.GetVariant(variantID)
 	if err != nil {
+		http.Error(w, "variant not found", http.StatusNotFound)
+		return
+	}
+	if variant.ProductID != productID {
 		http.Error(w, "variant not found", http.StatusNotFound)
 		return
 	}
@@ -143,9 +166,24 @@ func (s *Server) handleUpdateVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	productID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
 	variantID, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.Error(w, "invalid variant ID", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+	variant, err := s.store.GetVariant(variantID)
+	if err != nil || variant.ProductID != productID {
+		http.Error(w, "variant not found", http.StatusNotFound)
 		return
 	}
 
@@ -173,7 +211,7 @@ func (s *Server) handleUpdateVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	variant, err := s.store.GetVariant(variantID)
+	variant, err = s.store.GetVariant(variantID)
 	if err != nil {
 		http.Error(w, "variant not found", http.StatusNotFound)
 		return
@@ -192,9 +230,24 @@ func (s *Server) handleDeleteVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	productID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
 	variantID, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.Error(w, "invalid variant ID", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+	variant, err := s.store.GetVariant(variantID)
+	if err != nil || variant.ProductID != productID {
+		http.Error(w, "variant not found", http.StatusNotFound)
 		return
 	}
 
@@ -216,14 +269,28 @@ func (s *Server) handlePurchaseVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	productID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
 	variantID, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.Error(w, "invalid variant ID", http.StatusBadRequest)
 		return
 	}
 
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
 	variant, err := s.store.GetVariant(variantID)
 	if err != nil {
+		http.Error(w, "variant not found", http.StatusNotFound)
+		return
+	}
+	if variant.ProductID != productID {
 		http.Error(w, "variant not found", http.StatusNotFound)
 		return
 	}
@@ -250,6 +317,11 @@ func (s *Server) handleGetVariantInventory(w http.ResponseWriter, r *http.Reques
 	productID, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
 		return
 	}
 

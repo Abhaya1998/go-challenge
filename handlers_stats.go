@@ -132,6 +132,9 @@ func (s *Server) handleGetAuditLog(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to get audit log", http.StatusInternalServerError)
 			return
 		}
+		if limit > 0 && len(entries) > limit {
+			entries = entries[:limit]
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
 		return

@@ -1,0 +1,21 @@
+---
+description: When fixing bugs, always update FUNCTIONAL_BUGS.md with the fix log
+alwaysApply: true
+---
+
+# Bug Fixes Must Update FUNCTIONAL_BUGS.md
+
+Whenever you fix a defect, bug, or behavioral issue in this repo:
+
+1. **Update `FUNCTIONAL_BUGS.md`** with a new entry (or extend an existing one) using this format:
+   - **Defect** – What was wrong (short).
+   - **Root cause** – Why it happened.
+   - **Fix summary** – What was done.
+   - **Code change** – File(s) and exact change.
+   - **Validation** – How to confirm the fix.
+
+2. **Add a row to the Summary table** at the bottom of `FUNCTIONAL_BUGS.md` (number, area, one-line fix).
+
+3. Keep each entry **precise and short**. Match the style of existing entries in the file.
+
+This applies to any fix that corrects incorrect behavior, security issues, or data/UI bugs—not to refactors or style-only changes.

@@ -82,6 +82,7 @@ func (s *Server) handlePageProductDetail(w http.ResponseWriter, r *http.Request)
 	pathPart = strings.TrimSuffix(pathPart, "/")
 
 	if strings.Contains(pathPart, "/") {
+		http.NotFound(w, r)
 		return
 	}
 

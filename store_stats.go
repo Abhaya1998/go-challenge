@@ -82,15 +82,17 @@ func (s *Store) GetRecentAuditLog(limit int) ([]AuditEntry, error) {
 }
 
 // GetCategoryStats returns aggregate statistics grouped by category.
+// Uses variant-sum logic for total_inventory and in_stock_count (same as ListProducts/GetProductCount).
 func (s *Store) GetCategoryStats() ([]CategoryStat, error) {
 	rows, err := s.db.Query(`
-		SELECT category, COUNT(*) as product_count,
-		       COALESCE(AVG(price_cents), 0) as avg_price,
-		       COALESCE(SUM(quantity), 0) as total_inventory,
-		       SUM(CASE WHEN in_stock = 1 THEN 1 ELSE 0 END) as in_stock_count
-		FROM products
-		WHERE deleted_at IS NULL
-		GROUP BY category
+		SELECT p.category, COUNT(*) as product_count,
+		       COALESCE(AVG(p.price_cents), 0) / 100.0 as avg_price,
+		       COALESCE(SUM(COALESCE(v.tot, p.quantity)), 0) as total_inventory,
+		       SUM(CASE WHEN COALESCE(v.tot, p.quantity) > 0 THEN 1 ELSE 0 END) as in_stock_count
+		FROM products p
+		LEFT JOIN (SELECT product_id, SUM(quantity) AS tot FROM variants GROUP BY product_id) v ON p.id = v.product_id
+		WHERE p.deleted_at IS NULL
+		GROUP BY p.category
 		ORDER BY product_count DESC
 	`)
 	if err != nil {
@@ -111,12 +113,15 @@ func (s *Store) GetCategoryStats() ([]CategoryStat, error) {
 }
 
 // GetProductCount returns counts of total, in-stock, and out-of-stock products.
+// For products with variants, in-stock uses sum of variant quantities (same logic as ListProducts).
 func (s *Store) GetProductCount() (total, inStock, outOfStock int, err error) {
 	err = s.db.QueryRow(`
 		SELECT COUNT(*),
-		       SUM(CASE WHEN in_stock = 1 THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN in_stock = 0 THEN 1 ELSE 0 END)
-		FROM products WHERE deleted_at IS NULL
+		       SUM(CASE WHEN COALESCE(v.tot, p.quantity) > 0 THEN 1 ELSE 0 END),
+		       SUM(CASE WHEN COALESCE(v.tot, p.quantity) <= 0 THEN 1 ELSE 0 END)
+		FROM products p
+		LEFT JOIN (SELECT product_id, SUM(quantity) AS tot FROM variants GROUP BY product_id) v ON p.id = v.product_id
+		WHERE p.deleted_at IS NULL
 	`).Scan(&total, &inStock, &outOfStock)
 	return
 }
@@ -130,11 +135,14 @@ func (s *Store) GetAverageProductPrice() (float64, error) {
 	return avg, err
 }
 
-// GetTotalInventory returns the sum of all product quantities.
+// GetTotalInventory returns the sum of effective product quantities (for products with variants, sum of variant quantities).
 func (s *Store) GetTotalInventory() (int, error) {
 	var total int
-	err := s.db.QueryRow(
-		`SELECT COALESCE(SUM(quantity), 0) FROM products WHERE deleted_at IS NULL`,
+	err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(COALESCE(v.tot, p.quantity)), 0)
+		FROM products p
+		LEFT JOIN (SELECT product_id, SUM(quantity) AS tot FROM variants GROUP BY product_id) v ON p.id = v.product_id
+		WHERE p.deleted_at IS NULL`,
 	).Scan(&total)
 	return total, err
 }
@@ -147,13 +155,18 @@ func (s *Store) GetTotalReviewCount() (int, error) {
 }
 
 // SearchProducts performs a basic text search across product name and description.
+// Uses variant-sum for quantity and in_stock (same as ListProducts).
 func (s *Store) SearchProducts(query string) ([]dbProduct, error) {
 	pattern := "%" + query + "%"
 	rows, err := s.db.Query(
-		`SELECT id, name, description, price_cents, category, in_stock, quantity, created_at, updated_at, deleted_at
-		 FROM products
-		 WHERE deleted_at IS NULL AND (name LIKE ? OR description LIKE ?)
-		 ORDER BY name`,
+		`SELECT p.id, p.name, p.description, p.price_cents, p.category,
+		 (COALESCE(v.tot, p.quantity) > 0) AS in_stock,
+		 COALESCE(v.tot, p.quantity) AS quantity,
+		 p.created_at, p.updated_at, p.deleted_at
+		 FROM products p
+		 LEFT JOIN (SELECT product_id, SUM(quantity) AS tot FROM variants GROUP BY product_id) v ON p.id = v.product_id
+		 WHERE p.deleted_at IS NULL AND (p.name LIKE ? OR p.description LIKE ?)
+		 ORDER BY p.name`,
 		pattern, pattern,
 	)
 	if err != nil {

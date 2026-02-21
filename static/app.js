@@ -22,7 +22,7 @@ async function deleteProduct(id) {
 
     try {
         var response = await fetch('/products/' + id, {
-            method: 'GET',
+            method: 'DELETE',
         });
         if (response.ok) {
             showToast('Deleted!', 'success');
@@ -46,8 +46,19 @@ async function purchaseProduct(id) {
             showToast('Purchased!', 'success');
             var qtyEl = document.getElementById('product-quantity');
             if (qtyEl) {
-                var current = parseInt(qtyEl.textContent);
-                qtyEl.textContent = Math.max(0, current - 1);
+                var current = parseInt(qtyEl.textContent, 10);
+                var newQty = Math.max(0, current - 1);
+                qtyEl.textContent = newQty;
+                if (newQty === 0) {
+                    var statusEl = document.getElementById('product-stock-status');
+                    if (statusEl) {
+                        statusEl.innerHTML = '<span class="badge badge-danger">Out of Stock</span>';
+                    }
+                    var purchaseBtn = document.getElementById('product-purchase-btn');
+                    if (purchaseBtn) {
+                        purchaseBtn.style.display = 'none';
+                    }
+                }
             }
         } else {
             var data = await response.json();
@@ -83,6 +94,9 @@ async function createProduct(event) {
             setTimeout(function() {
                 window.location.href = '/';
             }, 1000);
+        } else {
+            var data = await response.json().catch(function() { return {}; });
+            showToast(data.error || 'Failed to create product', 'error');
         }
     } catch (err) {
         document.getElementById('error-msg').style.display = 'block';
@@ -234,8 +248,31 @@ async function purchaseVariant(productId, variantId) {
             showToast('Variant purchased!', 'success');
             var qtyEl = document.getElementById('variant-qty-' + variantId);
             if (qtyEl) {
-                var current = parseInt(qtyEl.textContent);
-                qtyEl.textContent = Math.max(0, current - 1);
+                var current = parseInt(qtyEl.textContent, 10);
+                var newQty = Math.max(0, current - 1);
+                qtyEl.textContent = newQty;
+                if (newQty === 0) {
+                    var variantStockEl = document.getElementById('variant-stock-' + variantId);
+                    if (variantStockEl) {
+                        variantStockEl.innerHTML = '<span class="badge badge-danger">Out of Stock</span>';
+                    }
+                    var buyWrap = document.getElementById('variant-buy-wrap-' + variantId);
+                    if (buyWrap) {
+                        buyWrap.style.display = 'none';
+                    }
+                }
+            }
+            var productQtyEl = document.getElementById('product-quantity');
+            if (productQtyEl) {
+                var productCurrent = parseInt(productQtyEl.textContent, 10);
+                var productNewQty = Math.max(0, productCurrent - 1);
+                productQtyEl.textContent = productNewQty;
+                if (productNewQty === 0) {
+                    var statusEl = document.getElementById('product-stock-status');
+                    if (statusEl) {
+                        statusEl.innerHTML = '<span class="badge badge-danger">Out of Stock</span>';
+                    }
+                }
             }
         } else {
             var data = await response.json();

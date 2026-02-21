@@ -18,7 +18,7 @@
         </div>
         <div class="detail-item">
             <label>Stock Status</label>
-            <span class="detail-value">
+            <span class="detail-value" id="product-stock-status">
                 {{if .Product.InStock}}
                     <span class="badge badge-success">In Stock</span>
                 {{else}}
@@ -40,8 +40,8 @@
     {{end}}
 
     <div class="detail-actions">
-        {{if .Product.InStock}}
-        <button onclick="purchaseProduct({{.Product.ID}})" class="btn btn-primary">Purchase</button>
+        {{if and .Product.InStock (not .Variants)}}
+        <button id="product-purchase-btn" onclick="purchaseProduct({{.Product.ID}})" class="btn btn-primary">Purchase</button>
         {{end}}
         <a href="/" class="btn">← Back to Products</a>
     </div>
@@ -69,11 +69,13 @@
                 <td><code>{{.SKU}}</code></td>
                 <td class="price">${{printf "%.2f" .Price}}</td>
                 <td>
+                    <span id="variant-stock-{{.ID}}">
                     {{if .InStock}}
                         <span class="badge badge-success">In Stock</span>
                     {{else}}
                         <span class="badge badge-danger">Out of Stock</span>
                     {{end}}
+                    </span>
                 </td>
                 <td><span class="variant-qty" id="variant-qty-{{.ID}}">{{.Quantity}}</span></td>
                 <td>
@@ -83,7 +85,7 @@
                 </td>
                 <td>
                     {{if .InStock}}
-                    <button onclick="purchaseVariant({{.ProductID}}, {{.ID}})" class="btn btn-sm btn-primary">Buy</button>
+                    <span id="variant-buy-wrap-{{.ID}}"><button onclick="purchaseVariant({{.ProductID}}, {{.ID}})" class="btn btn-sm btn-primary">Buy</button></span>
                     {{end}}
                 </td>
             </tr>

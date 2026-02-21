@@ -1,0 +1,7 @@
+1. The price shown in products page is incosistent with actual variant price, maybe some issue with currency parsing.
+2. While purchasing a product inside page, once the product stock reaches 0, it shows correctly 0 even after many purchase with proper notification out of stock, but the stock status inside product page still
+   shows in stock and once i go out to main page, the stock no goes to negative, that shows missing validation or concurrency issue
+3. even after a product is deleted it still shows in the product catalog, so missing parameter in select query.
+4. When a product has a variant, i should purchase by variant only, not directly product itself, so remove the purchase button from there
+5. whenevr i buy a variant the product quantity doesnot change only the variant quantity, same with stock status
+6. a product stock should be in stock only if the sum of all the stocks of variants is atleast 1.

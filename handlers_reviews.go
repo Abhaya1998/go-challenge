@@ -31,6 +31,11 @@ func (s *Server) handleListReviews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+
 	reviews, err := s.store.ListReviews(productID)
 	if err != nil {
 		http.Error(w, "failed to list reviews", http.StatusInternalServerError)
@@ -73,6 +78,10 @@ func (s *Server) handleCreateReview(w http.ResponseWriter, r *http.Request) {
 
 	id, err := s.store.CreateReview(productID, req.Author, req.Rating, req.Comment)
 	if err != nil {
+		if err.Error() == "product not found" {
+			http.Error(w, "product not found", http.StatusNotFound)
+			return
+		}
 		log.Printf("ERROR: failed to create review: %v", err)
 		http.Error(w, `{"error":"failed to create review"}`, http.StatusInternalServerError)
 		return
@@ -92,9 +101,24 @@ func (s *Server) handleDeleteReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	productID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
 	reviewID, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.Error(w, "invalid review ID", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+	review, err := s.store.GetReview(reviewID)
+	if err != nil || review.ProductID != productID {
+		http.Error(w, "review not found", http.StatusNotFound)
 		return
 	}
 
@@ -116,9 +140,24 @@ func (s *Server) handleApproveReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	productID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.Error(w, "invalid product ID", http.StatusBadRequest)
+		return
+	}
 	reviewID, err := strconv.Atoi(parts[2])
 	if err != nil {
 		http.Error(w, "invalid review ID", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := s.store.GetProduct(productID); err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
+		return
+	}
+	review, err := s.store.GetReview(reviewID)
+	if err != nil || review.ProductID != productID {
+		http.Error(w, "review not found", http.StatusNotFound)
 		return
 	}
 

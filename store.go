@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,14 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("seed data: %w", err)
 	}
 
+	// Correct any negative prices to absolute value (e.g. from old seed data)
+	if _, err := db.Exec(`UPDATE products SET price_cents = abs(price_cents) WHERE price_cents < 0`); err != nil {
+		log.Printf("WARN: could not fix negative product prices: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE variants SET price_cents = abs(price_cents) WHERE price_cents < 0`); err != nil {
+		log.Printf("WARN: could not fix negative variant prices: %v", err)
+	}
+
 	return store, nil
 }
 
@@ -103,7 +112,7 @@ func seedData(db *sql.DB) error {
 		{"USB-C Hub", "7-in-1 USB-C adapter with HDMI and ethernet", 3499, "electronics", true, 0},
 		{"Standing Desk", "Electric sit-stand desk, 60 inch wide", 49999, "furniture", false, 8},
 		{"Monitor Arm", "Single monitor mount, gas spring, VESA compatible", 4999, "furniture", true, 0},
-		{"Notebook Pack", "200-page lined notebooks, pack of 3", -500, "office", true, 50},
+		{"Notebook Pack", "200-page lined notebooks, pack of 3", 499, "office", true, 50},
 		{"Desk Lamp", "LED desk lamp with adjustable brightness", 3299, "office", true, 15},
 		{"Webcam HD", "1080p webcam with built-in microphone", 5999, "electronics", true, 3},
 	}
@@ -162,15 +171,22 @@ func (s *Store) Close() error {
 }
 
 // ListProducts returns all products, optionally filtered by category.
+// Only returns non-deleted products (deleted_at IS NULL).
+// For products that have variants, quantity and in_stock are the sum of variant quantities.
 func (s *Store) ListProducts(category string) ([]dbProduct, error) {
-	var query string
+	query := `SELECT p.id, p.name, p.description, p.price_cents, p.category,
+		(COALESCE(v.tot, p.quantity) > 0) AS in_stock,
+		COALESCE(v.tot, p.quantity) AS quantity,
+		p.created_at, p.updated_at, p.deleted_at
+		FROM products p
+		LEFT JOIN (SELECT product_id, SUM(quantity) AS tot FROM variants GROUP BY product_id) v ON p.id = v.product_id
+		WHERE p.deleted_at IS NULL`
 	var args []interface{}
-
 	if category != "" {
-		query = fmt.Sprintf(`SELECT id, name, description, price_cents, category, in_stock, quantity, created_at, updated_at, deleted_at FROM products WHERE category = '%s'`, category)
-	} else {
-		query = `SELECT id, name, description, price_cents, category, in_stock, quantity, created_at, updated_at, deleted_at FROM products`
+		query += ` AND p.category = ?`
+		args = append(args, category)
 	}
+	query += ` ORDER BY p.id`
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -204,8 +220,13 @@ func (s *Store) GetProduct(id int) (*dbProduct, error) {
 
 	var p dbProduct
 	err := s.db.QueryRow(
-		`SELECT id, name, description, price_cents, category, in_stock, quantity, created_at, updated_at, deleted_at
-		 FROM products WHERE id = ? AND deleted_at IS NULL`, id,
+		`SELECT p.id, p.name, p.description, p.price_cents, p.category,
+		 (COALESCE(v.tot, p.quantity) > 0) AS in_stock,
+		 COALESCE(v.tot, p.quantity) AS quantity,
+		 p.created_at, p.updated_at, p.deleted_at
+		 FROM products p
+		 LEFT JOIN (SELECT product_id, SUM(quantity) AS tot FROM variants WHERE product_id = ? GROUP BY product_id) v ON p.id = v.product_id
+		 WHERE p.id = ? AND p.deleted_at IS NULL`, id, id,
 	).Scan(&p.ID, &p.Name, &p.Description, &p.PriceCents, &p.Category,
 		&p.InStock, &p.Quantity, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt)
 	if err != nil {
@@ -224,6 +245,9 @@ func (s *Store) GetProduct(id int) (*dbProduct, error) {
 func (s *Store) CreateProduct(name, description string, priceCents int, category string, inStock bool, quantity int) (int, error) {
 	if name == "" {
 		return 0, fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(category) == "" {
+		return 0, fmt.Errorf("category is required")
 	}
 	if priceCents < 0 {
 		return 0, fmt.Errorf("price must be non-negative")
@@ -254,6 +278,15 @@ func (s *Store) CreateProduct(name, description string, priceCents int, category
 
 // UpdateProduct updates fields for a product.
 func (s *Store) UpdateProduct(id int, name, description string, priceCents int, category string, inStock bool, quantity int) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(category) == "" {
+		return fmt.Errorf("category is required")
+	}
+	if priceCents < 0 {
+		return fmt.Errorf("price must be non-negative")
+	}
 	now := time.Now().UTC()
 	result, err := s.db.Exec(
 		`UPDATE products SET name = ?, description = ?, price_cents = ?, category = ?, in_stock = ?, quantity = ?, updated_at = ?
@@ -272,6 +305,7 @@ func (s *Store) UpdateProduct(id int, name, description string, priceCents int, 
 		return fmt.Errorf("product not found")
 	}
 
+	s.invalidateProductCache(id)
 	return nil
 }
 
@@ -293,24 +327,36 @@ func (s *Store) DeleteProduct(id int) error {
 		return fmt.Errorf("product not found")
 	}
 
+	s.invalidateProductCache(id)
 	return nil
 }
 
+// invalidateProductCache removes a product from the cache (e.g. after update or delete).
+func (s *Store) invalidateProductCache(id int) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	delete(s.productCache, id)
+}
+
 // DecrementQuantity decreases quantity by 1 and updates in_stock.
+// Returns error if product not found or quantity is already 0 (atomic, prevents negative stock).
 func (s *Store) DecrementQuantity(id int) error {
-	var currentQty int
-	err := s.db.QueryRow(`SELECT quantity FROM products WHERE id = ?`, id).Scan(&currentQty)
+	now := time.Now().UTC()
+	result, err := s.db.Exec(
+		`UPDATE products SET quantity = quantity - 1, in_stock = (quantity > 1), updated_at = ?
+		 WHERE id = ? AND deleted_at IS NULL AND quantity > 0`,
+		now, id,
+	)
 	if err != nil {
 		return err
 	}
-
-	newQty := currentQty - 1
-	inStock := newQty > 0
-	now := time.Now().UTC()
-
-	_, err = s.db.Exec(
-		`UPDATE products SET quantity = ?, in_stock = ?, updated_at = ? WHERE id = ?`,
-		newQty, inStock, now, id,
-	)
-	return err
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("product not found or out of stock")
+	}
+	s.invalidateProductCache(id)
+	return nil
 }

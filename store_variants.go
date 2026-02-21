@@ -162,22 +162,25 @@ func (s *Store) DeleteVariantsByProduct(productID int) error {
 }
 
 // DecrementVariantQuantity decreases a variant's quantity by 1.
+// Returns error if variant not found or quantity is already 0 (atomic, prevents negative stock).
 func (s *Store) DecrementVariantQuantity(variantID int) error {
-	var currentQty int
-	err := s.db.QueryRow(`SELECT quantity FROM variants WHERE id = ?`, variantID).Scan(&currentQty)
+	now := time.Now().UTC()
+	result, err := s.db.Exec(
+		`UPDATE variants SET quantity = quantity - 1, in_stock = (quantity > 1), updated_at = ?
+		 WHERE id = ? AND quantity > 0`,
+		now, variantID,
+	)
 	if err != nil {
 		return err
 	}
-
-	newQty := currentQty - 1
-	inStock := newQty > 0
-	now := time.Now().UTC()
-
-	_, err = s.db.Exec(
-		`UPDATE variants SET quantity = ?, in_stock = ?, updated_at = ? WHERE id = ?`,
-		newQty, inStock, now, variantID,
-	)
-	return err
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("variant not found or out of stock")
+	}
+	return nil
 }
 
 // GetVariantInventory returns an inventory summary for a product's variants.

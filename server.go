@@ -100,25 +100,25 @@ func (s *Server) routes() {
 	mux.HandleFunc("/products/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/products/")
 
-		// Handle /products/:id/purchase
+		// Handle /products/:id/reviews and /products/:id/reviews/:reviewId (before /purchase so path is not matched by suffix)
+		if strings.Contains(path, "/reviews") {
+			s.routeReviews(w, r, path)
+			return
+		}
+
+		// Handle /products/:id/variants and /products/:id/variants/:variantId/purchase (before /purchase)
+		if strings.Contains(path, "/variants") {
+			s.routeVariants(w, r, path)
+			return
+		}
+
+		// Handle /products/:id/purchase (product-level only; variant purchase is above)
 		if strings.HasSuffix(path, "/purchase") {
 			if r.Method == http.MethodPost {
 				s.handlePurchaseProduct(w, r)
 				return
 			}
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// Handle /products/:id/reviews and /products/:id/reviews/:reviewId
-		if strings.Contains(path, "/reviews") {
-			s.routeReviews(w, r, path)
-			return
-		}
-
-		// Handle /products/:id/variants and /products/:id/variants/:variantId
-		if strings.Contains(path, "/variants") {
-			s.routeVariants(w, r, path)
 			return
 		}
 
